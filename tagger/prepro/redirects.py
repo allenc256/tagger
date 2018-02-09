@@ -125,11 +125,11 @@ def build_json_index(page_index, redirect_index):
         if p1:
             p1['from'].append(t0)
         else:
-            print('failed to resolve: %s' % t1, file=sys.stderr)
+            print('warning - failed to resolve: %s (ignoring)' % t1, file=sys.stderr)
         if p0:
             p0['to'] = t1
         else:
-            print('failed to resolve: %s' % t0, file=sys.stderr)
+            print('warning - failed to resolve: %s (ignoring)' % t0, file=sys.stderr)
 
     for p in r.values():
         if len(p['from']) <= 0:
@@ -143,6 +143,7 @@ def build_json_index(page_index, redirect_index):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('input', help='XML wiki dump file')
+    parser.add_argument('output', help='output redirect index')
 
     args = parser.parse_args()
 
@@ -153,7 +154,8 @@ def main():
 
     r = build_json_index(page_index, redirect_index)
 
-    json.dump(r, sys.stdout, indent=1)
+    with open(args.output, 'wt') as f:
+        json.dump(r, f, indent=1)
 
 
 if __name__ == '__main__':
