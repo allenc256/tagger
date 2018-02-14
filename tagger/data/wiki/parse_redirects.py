@@ -120,7 +120,7 @@ def resolve_redirects(redirect_index):
 
 
 def parse_redirects(file):
-    index = index_pages(tqdm(file, desc='building redirect index'))
+    index = index_pages(tqdm(file, desc='parsing redirects'))
     index = resolve_redirects(index)
     return index
 

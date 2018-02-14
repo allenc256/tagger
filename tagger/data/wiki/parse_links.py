@@ -4,12 +4,11 @@ import json
 import logging
 import re
 import urllib.parse
-from collections import Counter
 from html.parser import HTMLParser
 
 from tqdm import tqdm
 
-from . import parse_redirects
+from .parse_redirects import parse_redirects
 
 
 class TextParser(HTMLParser):
@@ -91,24 +90,17 @@ def sanitize_links(page, redirect_index):
     return page
 
 
-def count_links(page, link_counter):
-    for l in page['links']:
-        link_counter[l['target']] += 1
-
-
 def main():
+    # argument parsing
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('input', help='path to original XML dump file')
     parser.add_argument('extracted', help='path to extraction directory')
     parser.add_argument(
-        '-o', '--output', default='parse_links.json',
+        '-o', '--output', default='parsed_wiki.json',
         help='path to parsing output file')
     parser.add_argument(
         '-l', '--log', default='parse_links.log', help='processing log file')
-    parser.add_argument(
-        '-c', '--counter', default='parse_links.counter.json',
-        help='path to link counter file')
 
     args = parser.parse_args()
 
@@ -121,16 +113,18 @@ def main():
     with open(args.input, 'rt') as f:
         redirect_index = parse_redirects(f)
 
-    # link counter
-    link_counter = Counter()
-
-    # parse extracted file
+    # open output file
     with open(args.output, 'wt') as out_file:
-        in_file_names = glob.glob('%s/**/wiki_*' % args.input, recursive=True)
+
+        # glob extracted files
+        in_file_names = glob.glob(
+            '%s/**/wiki_*' % args.extracted, recursive=True)
+
+        # parse each extracted file
         for in_file_name in tqdm(in_file_names, desc='parsing links'):
             logging.info('processing file: %s', in_file_name)
-            # parse each file (contains multiple pages)
             with open(in_file_name, 'rt') as in_file:
+
                 # parse each line (one line = one page)
                 for l in in_file:
                     # parse JSON
@@ -143,19 +137,9 @@ def main():
                     # fix links / redirects
                     page = sanitize_links(page, redirect_index)
 
-                    # count links
-                    count_links(page, link_counter)
-
                     # output (w/ extra newline separator)
                     json.dump(page, out_file)
                     print(file=out_file)
-
-    # write link counter
-    with open(args.counter, 'wt') as f:
-        print('{', file=f)
-        for title, count in link_counter.most_common():
-            print(' %s: %d,' % (json.dumps(title), count), file=f)
-        print('}', file=f)
 
 
 if __name__ == '__main__':
