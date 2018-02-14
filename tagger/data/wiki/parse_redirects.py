@@ -1,7 +1,6 @@
 import argparse
 import json
 import re
-import sys
 from html.parser import HTMLParser
 
 from tqdm import tqdm
@@ -34,6 +33,13 @@ tagRE = re.compile(r'(.*?)<(/?\w+)[^>]*?>(?:([^<]*)(<.*?>)?)?')
 #                    1     2               3      4
 
 
+def normalize_title(title):
+    title = title.strip(' _')
+    title = re.sub(r'[\s_]+', ' ', title)
+    # capitalize first char
+    return title[0].upper() + title[1:]
+
+
 def index_pages(lines):
     page_index = {}
     redirect_index = {}
@@ -60,7 +66,7 @@ def index_pages(lines):
         elif tag == 'id' and page_id:
             revid = m.group(3)
         elif tag == 'title':
-            title = parse_tag(line).data
+            title = normalize_title(parse_tag(line).data)
         elif tag == 'ns':
             ns = parse_tag(line).data
         elif tag == 'redirect':
@@ -89,7 +95,7 @@ def index_pages(lines):
             title = None
             redirect = None
 
-    return page_index, redirect_index
+    return redirect_index
 
 
 def resolve_redirects(redirect_index):
@@ -110,52 +116,30 @@ def resolve_redirects(redirect_index):
     for t in redirect_index.keys():
         _resolve(t)
 
-    r = { k: v for k, v in r.items() if k != v }
-
     return r
 
 
-def build_json_index(page_index, redirect_index):
-    r = { title: { 'id': pid, 'from': [], 'to': None }
-          for pid, title in page_index.items() }
-
-    for t0, t1 in redirect_index.items():
-        p0 = r.get(t0)
-        p1 = r.get(t1)
-        if p1:
-            p1['from'].append(t0)
-        else:
-            print('warning - failed to resolve: %s (ignoring)' % t1, file=sys.stderr)
-        if p0:
-            p0['to'] = t1
-        else:
-            print('warning - failed to resolve: %s (ignoring)' % t0, file=sys.stderr)
-
-    for p in r.values():
-        if len(p['from']) <= 0:
-            del p['from']
-        if not p['to']:
-            del p['to']
-
-    return r
+def parse_redirects(file):
+    index = index_pages(tqdm(file, desc='building redirect index'))
+    index = resolve_redirects(index)
+    return index
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('input', help='XML wiki dump file')
-    parser.add_argument('output', help='output redirect index')
+    parser.add_argument(
+        '-o', '--output', default='parse_redirects.json',
+        help='output redirect index')
 
     args = parser.parse_args()
 
     with open(args.input, 'rt') as f:
-        page_index, redirect_index = index_pages(tqdm(f))
-
-    redirect_index = resolve_redirects(redirect_index)
-
-    r = build_json_index(page_index, redirect_index)
+        index = parse_redirects(f)
 
     with open(args.output, 'wt') as f:
-        json.dump(r, f, indent=1)
+        json.dump(index, f, indent=1)
 
 
 if __name__ == '__main__':
