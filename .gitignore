@@ -1,5 +1,6 @@
 .idea/
 /data/
+/logs/
 __pycache__/
 *.log
 *.tfrecords

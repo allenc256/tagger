@@ -125,12 +125,13 @@ def parse_redirects(file):
     return index
 
 
+# this is for testing --- parse_redirects is called directly by other scripts
 def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('input', help='XML wiki dump file')
     parser.add_argument(
-        '-o', '--output', default='parse_redirects.json',
+        '-o', '--output', default='scripts/wiki/parse_redirects.json',
         help='output redirect index')
 
     args = parser.parse_args()

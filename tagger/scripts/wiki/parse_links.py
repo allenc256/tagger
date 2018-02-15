@@ -2,13 +2,14 @@ import argparse
 import glob
 import json
 import logging
+import os
 import re
 import urllib.parse
 from html.parser import HTMLParser
 
 from tqdm import tqdm
 
-from .parse_redirects import parse_redirects
+from tagger.scripts.wiki.parse_redirects import parse_redirects
 
 
 class TextParser(HTMLParser):
@@ -94,15 +95,23 @@ def main():
     # argument parsing
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('input', help='path to original XML dump file')
-    parser.add_argument('extracted', help='path to extraction directory')
     parser.add_argument(
-        '-o', '--output', default='parsed_wiki.json',
+        '-i', '--input', default='data/wiki/wiki.xml',
+        help='path to original XML dump file')
+    parser.add_argument(
+        '-e', '--extracted', default='data/wiki/extracted',
+        help='path to extraction directory')
+    parser.add_argument(
+        '-o', '--output', default='data/wiki/parsed_wiki.json',
         help='path to parsing output file')
     parser.add_argument(
-        '-l', '--log', default='parse_links.log', help='processing log file')
-
+        '-l', '--log', default='logs/parse_links.log',
+        help='processing log file')
     args = parser.parse_args()
+
+    # make sure directories exist
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    os.makedirs(os.path.dirname(args.log), exist_ok=True)
 
     # configure logging
     logging.basicConfig(
