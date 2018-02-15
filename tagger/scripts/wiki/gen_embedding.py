@@ -11,13 +11,19 @@ def main():
     # parse command-line
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('input', help='dataset/features dictionary file')
-    parser.add_argument('model', help='fastText binary model file (.bin)')
-    parser.add_argument('output', help='output embedding file')
+    parser.add_argument(
+        '--dict', default='data/wiki/parsed_examples.dict.json',
+        help='dataset/features dictionary file')
+    parser.add_argument(
+        '--model', default='data/wiki/wiki.en.bin',
+        help='fastText binary model file')
+    parser.add_argument(
+        '--output', default='data/wiki/parsed_examples.embedding.npy',
+        help='output embedding file')
     args = parser.parse_args()
 
     # load feature dict
-    with open(args.input, 'rt') as f:
+    with open(args.dict, 'rt') as f:
         data_dict = DatasetDictionary()
         data_dict.from_json(json.load(f))
 
