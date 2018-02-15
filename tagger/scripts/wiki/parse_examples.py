@@ -79,7 +79,8 @@ def parse_page(line, nlp, valid_targets, window_width):
     examples = []
     for l in valid_links:
         overlaps = [ival.data.i for ival in token_spans[l['start']:l['end']]]
-        # empty link
+
+        # ignore empty links
         if len(overlaps) == 0:
             logging.warning('found non-overlapping link (ignoring): %s', l)
             continue
@@ -94,7 +95,7 @@ def parse_page(line, nlp, valid_targets, window_width):
             text=[], ent_type=[], is_title=[], like_num=[], pos=[], tag=[],
             target=[])
 
-        # build example
+        # fill example with features
         for i in range(window_l, window_r):
             # find overlapping link(s)
             start = tokens[i].idx
@@ -107,11 +108,11 @@ def parse_page(line, nlp, valid_targets, window_width):
             else:
                 if len(ivals) > 1:
                     logging.warning(
-                        'link collision (ignoring): %s',
-                        tokens[i])
+                        'link collision (ignoring): %s %s',
+                        tokens[i], [ival.data for ival in ivals])
                 target = None
 
-            # append to example
+            # append features
             example.text.append(sanitize_text(tokens[i].text))
             example.ent_type.append(tokens[i].ent_type_)
             example.is_title.append(str(tokens[i].is_title))

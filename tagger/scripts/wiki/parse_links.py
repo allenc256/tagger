@@ -125,11 +125,11 @@ def main():
     # open output file
     with open(args.output, 'wt') as out_file:
 
-        # glob extracted files
+        # glob input files
         in_file_names = glob.glob(
             '%s/**/wiki_*' % args.extracted, recursive=True)
 
-        # parse each extracted file
+        # parse each input file
         for in_file_name in tqdm(in_file_names, desc='parsing links'):
             logging.info('processing file: %s', in_file_name)
             with open(in_file_name, 'rt') as in_file:
