@@ -96,16 +96,16 @@ def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        '-i', '--input', default='data/wiki/wiki.xml',
+        '-i', '--input', metavar='FILE', default='data/wiki/wiki.xml',
         help='path to original XML dump file')
     parser.add_argument(
-        '-e', '--extracted', default='data/wiki/extracted',
+        '-e', '--extracted', metavar='DIR', default='data/wiki/text',
         help='path to extraction directory')
     parser.add_argument(
-        '-o', '--output', default='data/wiki/parsed_wiki.json',
+        '-o', '--output', metavar='FILE', default='data/wiki/parsed_wiki.json',
         help='path to parsing output file')
     parser.add_argument(
-        '-l', '--log', default='logs/parse_links.log',
+        '-l', '--log', metavar='FILE', default='logs/parse_links.log',
         help='processing log file')
     args = parser.parse_args()
 

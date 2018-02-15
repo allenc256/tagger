@@ -1,7 +1,10 @@
 import argparse
+import itertools
 import json
 import logging
+import multiprocessing as mp
 import os
+import queue
 import random
 from collections import Counter
 from types import SimpleNamespace
@@ -20,7 +23,35 @@ def sanitize_text(text):
     return text
 
 
-def parse_examples_page(nlp, page_json, valid_targets, window_width, data_dict):
+def feed_process(in_queue, filename, num_pages):
+    # feed input queue
+    with open(filename, 'rt') as f:
+        lines = itertools.islice(f, 0, num_pages)
+        for l in tqdm(lines, desc='parsing examples', total=num_pages):
+            in_queue.put(l)
+
+    # wait for all items to complete processing; this ensures the parent
+    # process knows when things are actually done
+    in_queue.join()
+
+
+def parse_process(in_queue, out_queue, nlp, valid_targets, window_width):
+    while True:
+        # parse next page
+        line = in_queue.get()
+        exs = parse_page(line, nlp, valid_targets, window_width)
+
+        # write parsed examples to queue
+        out_queue.put(exs)
+
+        # mark task done
+        in_queue.task_done()
+
+
+def parse_page(line, nlp, valid_targets, window_width):
+    # parse JSON
+    page_json = json.loads(line)
+
     # tokenize
     tokens = next(nlp.pipe([page_json['text']]))
 
@@ -45,6 +76,7 @@ def parse_examples_page(nlp, page_json, valid_targets, window_width, data_dict):
         link_spans[l['start']:l['end']] = l
 
     # create examples (one per valid link)
+    examples = []
     for l in valid_links:
         overlaps = [ival.data.i for ival in token_spans[l['start']:l['end']]]
         # empty link
@@ -80,39 +112,39 @@ def parse_examples_page(nlp, page_json, valid_targets, window_width, data_dict):
                 target = None
 
             # append to example
-            example.text.append(
-                data_dict.text.get_id(sanitize_text(tokens[i].text)))
-            example.ent_type.append(
-                data_dict.ent_type.get_id(tokens[i].ent_type_))
-            example.is_title.append(
-                data_dict.is_title.get_id(str(tokens[i].is_title)))
-            example.like_num.append(
-                data_dict.like_num.get_id(str(tokens[i].like_num)))
-            example.pos.append(
-                data_dict.pos.get_id(tokens[i].pos_))
-            example.tag.append(
-                data_dict.tag.get_id(tokens[i].tag_))
-            example.target.append(
-                data_dict.target.get_id(target))
+            example.text.append(sanitize_text(tokens[i].text))
+            example.ent_type.append(tokens[i].ent_type_)
+            example.is_title.append(str(tokens[i].is_title))
+            example.like_num.append(str(tokens[i].like_num))
+            example.pos.append(tokens[i].pos_)
+            example.tag.append(tokens[i].tag_)
+            example.target.append(target)
 
-        yield example
+        examples.append(example)
+
+    # logging
+    logging.info(
+        'parsed %d examples for page: %s', len(examples), page_json['title'])
+
+    return examples
 
 
 def count_links(file):
     c = Counter()
+    num_pages = 0
     for line in tqdm(file, desc='counting links'):
         page = json.loads(line)
+        num_pages += 1
         for l in page['links']:
             c[l['target']] += 1
-    return c
+    return c, num_pages
 
 
-def dump_example(ex, data_dict):
+def dump_example(ex):
     logging.debug('dumping example:')
     for i in range(len(ex.text)):
-        args = [getattr(data_dict, fn).get_value(getattr(ex, fn)[i])
-                for fn in ['text', 'target', 'ent_type', 'is_title',
-                           'like_num', 'pos', 'tag']]
+        args = [getattr(ex, fn)[i] for fn in [
+            'text', 'target', 'ent_type', 'is_title', 'like_num', 'pos', 'tag']]
         logging.debug('%20.20s %20.20s %10.10s %5.5s %5.5s %5.5s %5.5s', *args)
 
 
@@ -130,43 +162,43 @@ def remove_random(buffer):
     return v
 
 
-def parse_examples_all(args, nlp, data_dict, valid_targets):
+def parse_examples(args, nlp, valid_targets, num_pages):
     root_logger = logging.getLogger()
     buffer = []
-    page_count = 0
 
-    # parse examples
-    with open(args.input, 'rt') as in_file:
-        for line in tqdm(in_file, desc='parsing examples'):
-            # parse JSON
-            page = json.loads(line)
+    # queues
+    in_queue = mp.JoinableQueue(args.processes * 2)
+    out_queue = mp.JoinableQueue(args.processes * 2)
 
-            # parse examples
-            es = list(parse_examples_page(
-                nlp, page, valid_targets, args.window, data_dict))
+    # start feed process
+    feeder = mp.Process(
+        target=feed_process, args=(in_queue, args.input, num_pages))
+    feeder.start()
 
-            # logging
-            logging.info(
-                'parsed %d examples for page: %s', len(es), page['title'])
+    # start parser proceses
+    for i in range(args.processes):
+        p = mp.Process(
+            target=parse_process,
+            args=(in_queue, out_queue, nlp, valid_targets, args.window))
+        p.daemon = True
+        p.start()
 
-            # skip pages without examples
-            if len(es) <= 0:
-                continue
+    # read results
+    while feeder.is_alive():
+        try:
+            es = out_queue.get(timeout=1)
+        except queue.Empty:
+            continue
 
-            # check limit
-            page_count += 1
-            if 0 <= args.limit < page_count:
-                break
+        # dump examples
+        if root_logger.isEnabledFor(logging.DEBUG):
+            for e in es:
+                dump_example(e)
 
-            # dump examples
-            if root_logger.isEnabledFor(logging.DEBUG):
-                for e in es:
-                    dump_example(e, data_dict)
-
-            # output examples for page
-            if len(buffer) >= args.buffer_size > 0:
-                yield remove_random(buffer)
-            buffer.append(es)
+        # output examples for page
+        if len(buffer) >= args.buffer_size > 0:
+            yield remove_random(buffer)
+        buffer.append(es)
 
     # yield remaining elements in buffer
     random.shuffle(buffer)
@@ -174,11 +206,15 @@ def parse_examples_all(args, nlp, data_dict, valid_targets):
         yield es
 
 
-def convert_to_tfrecord(ex, feature_names):
-    return tf.train.Example(features=tf.train.Features(
-        feature={fn:tf.train.Feature(
-            int64_list=tf.train.Int64List(value=getattr(ex, fn)))
-            for fn in feature_names}))
+def convert_to_tfrecord(ex, data_dict):
+    fs = {}
+    for name in data_dict.feature_names():
+        fdict = getattr(data_dict, name)
+        fvals = getattr(ex, name)
+        fids = [fdict.get_id(v) for v in fvals]
+        fs[name] = tf.train.Feature(
+            int64_list=tf.train.Int64List(value=fids))
+    return tf.train.Example(features=tf.train.Features(feature=fs))
 
 
 def write_examples(args, examples, data_dict):
@@ -186,9 +222,11 @@ def write_examples(args, examples, data_dict):
     train_ex_count = 0
     dev_page_count = 0
     dev_ex_count = 0
+    opts = tf.python_io.TFRecordOptions(
+        tf.python_io.TFRecordCompressionType.GZIP)
 
-    with tf.python_io.TFRecordWriter(args.train) as train_writer:
-        with tf.python_io.TFRecordWriter(args.dev) as dev_writer:
+    with tf.python_io.TFRecordWriter(args.train, options=opts) as train_writer:
+        with tf.python_io.TFRecordWriter(args.dev, options=opts) as dev_writer:
             for es in examples:
                 # randomly pick which set to add example to
                 if random.random() <= args.dev_fraction:
@@ -202,7 +240,7 @@ def write_examples(args, examples, data_dict):
 
                 # write examples
                 for e in es:
-                    r = convert_to_tfrecord(e, data_dict.feature_names())
+                    r = convert_to_tfrecord(e, data_dict)
                     writer.write(r.SerializeToString())
 
     logging.info(
@@ -222,11 +260,11 @@ def main():
         help='path to parsed wiki data')
     parser.add_argument(
         '--train', metavar='FILE',
-        default='data/wiki/parsed_examples.train.tfrecords',
+        default='data/wiki/parsed_examples.train.tfrecords.gz',
         help='path to output training set file')
     parser.add_argument(
         '--dev', metavar='FILE',
-        default='data/wiki/parsed_examples.dev.tfrecords',
+        default='data/wiki/parsed_examples.dev.tfrecords.gz',
         help='path to output development set file')
     parser.add_argument(
         '--dev-fraction', metavar='F', type=float, default=0.02,
@@ -253,9 +291,13 @@ def main():
         '--limit', metavar='N', type=int, default=-1,
         help='maximum number of pages to parse (-1 for no limit)')
     parser.add_argument(
-        '--buffer-size', metavar='N', type=int, default=10000,
+        '--buffer-size', metavar='N', type=int, default=1000,
         help='maximum size of shuffle buffer (-1 to load everything into '
              'memory)')
+    parser.add_argument(
+        '--processes', metavar='N', type=int,
+        default=max(mp.cpu_count() // 2, 1),
+        help='number of threads to perform parsing on')
     args = parser.parse_args()
 
     # make sure directories exist
@@ -268,16 +310,20 @@ def main():
     level = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(
         filename=args.log, level=level, filemode='w',
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        format='%(asctime)s - %(process)s - %(levelname)s - %(message)s')
 
     # determine valid targets
     with open(args.input, 'rt') as f:
-        link_counter = count_links(f)
+        link_counter, num_pages = count_links(f)
         valid_targets = set(
             title for title, count in link_counter.items() if count >= args.min)
         logging.info(
             'link targets w/ %d min appearances: %d/%d', args.min,
             len(valid_targets), len(link_counter.keys()))
+
+    # apply limit
+    if args.limit > 0:
+        num_pages = min(args.limit, num_pages)
 
     # load spacy
     print('loading spacy...', end='', flush=True)
@@ -293,7 +339,7 @@ def main():
     data_dict = DatasetDictionary()
 
     # parse examples
-    examples = parse_examples_all(args, nlp, data_dict, valid_targets)
+    examples = parse_examples(args, nlp, valid_targets, num_pages)
 
     # write examples
     write_examples(args, examples, data_dict)
