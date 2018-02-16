@@ -4,7 +4,7 @@ import json
 import fastText
 import numpy as np
 
-from tagger.model.feature import DatasetDictionary
+from tagger.model.dataset import DatasetDictionary
 
 
 def main():

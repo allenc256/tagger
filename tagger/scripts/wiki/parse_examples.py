@@ -14,7 +14,7 @@ import tensorflow as tf
 from intervaltree import IntervalTree
 from tqdm import tqdm
 
-from tagger.model.feature import DatasetDictionary, FEATURE_NAMES
+from tagger.model.dataset import DatasetDictionary, FEATURE_NAMES
 
 
 def sanitize_text(text):
