@@ -14,7 +14,7 @@ import tensorflow as tf
 from intervaltree import IntervalTree
 from tqdm import tqdm
 
-from tagger.model.feature import DatasetDictionary
+from tagger.model.feature import DatasetDictionary, FEATURE_NAMES
 
 
 def sanitize_text(text):
@@ -209,7 +209,7 @@ def parse_examples(args, nlp, valid_targets, num_pages):
 
 def convert_to_tfrecord(ex, data_dict):
     fs = {}
-    for name in data_dict.feature_names():
+    for name in FEATURE_NAMES:
         fdict = getattr(data_dict, name)
         fvals = getattr(ex, name)
         fids = [fdict.get_id(v) for v in fvals]

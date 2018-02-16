@@ -73,12 +73,6 @@ class DatasetDictionary:
         # spacy POS fine-grained tag
         self.tag = FeatureDictionary()
 
-    def feature_names(self):
-        """
-        List of feature names.
-        """
-        return self.__dict__.keys()
-
     def to_json(self):
         """
         Create JSON reprentation.
@@ -93,3 +87,6 @@ class DatasetDictionary:
         """
         for fn, fd in json.items():
             getattr(self, fn).from_json(fd)
+
+
+FEATURE_NAMES = sorted(DatasetDictionary().__dict__.keys())
