@@ -77,7 +77,7 @@ class FeatureDictionary:
         self._id_to_value = [None]
         self._value_to_id = {None: 0}
 
-    def get_id(self, value):
+    def id(self, value):
         """
         Get the ID corresponding to a feature value, or create a new ID if the
         value hasn't been seen before.
@@ -91,7 +91,7 @@ class FeatureDictionary:
             self._id_to_value.append(value)
         return fid
 
-    def get_value(self, fid):
+    def value(self, fid):
         """
         Get the value corresponding to a feature ID.
         :param fid: the feature ID
@@ -158,4 +158,5 @@ class DatasetDictionary:
             getattr(self, fn).from_json(fd)
 
 
+# N.B., some code relies on deterministic order here, so this needs to be sorted
 FEATURE_NAMES = sorted(DatasetDictionary().__dict__.keys())

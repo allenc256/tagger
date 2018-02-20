@@ -212,7 +212,7 @@ def convert_to_tfrecord(ex, data_dict):
     for name in FEATURE_NAMES:
         fdict = getattr(data_dict, name)
         fvals = getattr(ex, name)
-        fids = [fdict.get_id(v) for v in fvals]
+        fids = [fdict.id(v) for v in fvals]
         fs[name] = tf.train.Feature(
             int64_list=tf.train.Int64List(value=fids))
     return tf.train.Example(features=tf.train.Features(feature=fs))

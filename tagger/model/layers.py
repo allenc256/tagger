@@ -89,3 +89,41 @@ def rnn(input_data, input_lens, size, num_layers, dropout_rate, training,
         o = tf.transpose(o, perm=[1, 0, 2])
 
         return o
+
+
+def attention(inputs, memory, mask, size, dropout_rate=0.0, training=False, name='attn', reuse=None):
+    with tf.variable_scope(name, reuse=reuse):
+        # dropout
+        i = _rnn_dropout(inputs, dropout_rate, training)
+        m = _rnn_dropout(memory, dropout_rate, training)
+
+        # project
+        i = tf.layers.dense(
+            i, size, use_bias=False, activation=tf.nn.relu, name='proj_i')
+        m = tf.layers.dense(
+            m, size, use_bias=False, activation=tf.nn.relu, name='proj_m')
+
+        # compute weights
+        m_T = tf.transpose(m, [0, 2, 1])
+        w = tf.matmul(i, m_T)
+
+        # mask
+        i_len = tf.shape(inputs)[1]
+        mask = tf.tile(tf.expand_dims(mask, axis=1), [1, i_len, 1])
+        mask = -1e25 * (1 - mask)
+        w += mask
+
+        # softmax
+        w = tf.nn.softmax(w)
+
+        # apply weights
+        outputs = tf.matmul(w, memory)
+        outputs = tf.concat([inputs, outputs], axis=-1)
+
+        # TODO: how important is this?
+        # compute gating weights
+        o = _rnn_dropout(outputs, dropout_rate, training)
+        g = tf.nn.sigmoid(tf.layers.dense(o, outputs.shape[-1].value, use_bias=False, name='gate'))
+
+        # apply gating weights
+        return outputs * g

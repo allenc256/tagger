@@ -15,7 +15,7 @@ def main():
         '--dict', default='data/wiki/parsed_examples.dict.json',
         help='dataset/features dictionary file')
     parser.add_argument(
-        '--model', default='data/wiki/wiki.en.bin',
+        '--model', default='data/embeddings/wiki.en.bin',
         help='fastText binary model file')
     parser.add_argument(
         '--output', default='data/wiki/parsed_examples.embedding.npy',
@@ -36,7 +36,7 @@ def main():
     embedding = np.zeros([data_dict.text.size(), model.get_dimension()])
     out_count = 0
     for i in range(data_dict.text.size()):
-        word = data_dict.text.get_value(i)
+        word = data_dict.text.value(i)
         if word:
             if model.get_word_id(word) < 0:
                 out_count += 1
