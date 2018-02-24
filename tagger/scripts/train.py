@@ -37,12 +37,6 @@ def main():
         '--hidden-dim', metavar='N', type=int, default=128,
         help='hidden dimension size')
     parser.add_argument(
-        '--num-encoder-layers', metavar='N', type=int, default=3,
-        help='number of encoder RNN layers')
-    parser.add_argument(
-        '--num-memory-layers', metavar='N', type=int, default=1,
-        help='number of memory RNN layers')
-    parser.add_argument(
         '--num-parallel-calls', metavar='N', type=int, default=2,
         help='number of parallel calls in dataset parser')
     parser.add_argument(
@@ -82,7 +76,7 @@ def main():
         '--eval-steps', metavar='N', type=int, default=100,
         help='number of evaluation steps')
     parser.add_argument(
-        '--eval-interval', metavar='N', type=int, default=1000,
+        '--eval-interval', metavar='N', type=int, default=10000,
         help='number of steps between evaluations')
     parser.add_argument(
         '--dump-examples', metavar='N', type=int, default=0,
@@ -94,6 +88,27 @@ def main():
         '--max-patience', metavar='N', type=int, default=3,
         help='maximum number of lower-performing evaluation steps before '
              'applying learning rate decay')
+    parser.add_argument(
+        '--model', metavar='TYPE', choices=['rnn', 'attention'],
+        default='attention',
+        help='model type to use (choices: rnn, attention)')
+
+    group = parser.add_argument_group('hyperparameters for rnn model')
+    group.add_argument(
+        '--num-encoder-rnn-layers', metavar='N', type=int, default=3,
+        help='number of encoder RNN layers')
+    group.add_argument(
+        '--num-memory-rnn-layers', metavar='N', type=int, default=1,
+        help='number of memory RNN layers')
+
+    group = parser.add_argument_group('hyperparameters for attention model')
+    group.add_argument(
+        '--num-attention-layers', metavar='N', type=int, default=3,
+        help='number of self-attention layers')
+    group.add_argument(
+        '--hidden-dim-ff', metavar='N', type=int, default=128*2,
+        help='feed-forward hidden dimension size')
+
     embedding_dims = types.SimpleNamespace(
         ent_type=16, is_title=2, like_num=2, pos=16, tag=16)
     for name, dim in embedding_dims.__dict__.items():
@@ -174,8 +189,14 @@ def run(hparams):
             handle, data_train.output_types, data_train.output_shapes)
 
         # initialize model
-        model = tagger_model.Model(
-            hparams, data_it, handle, data_dict, word_embedding)
+        if hparams.model == 'attention':
+            model = tagger_model.AttentionModel(
+                hparams, data_it, handle, data_dict, word_embedding)
+        elif hparams.model == 'rnn':
+            model = tagger_model.RnnModel(
+                hparams, data_it, handle, data_dict, word_embedding)
+        else:
+            raise ValueError('invalid model type: %s', hparams.model)
         tagger_model.dump_statistics()
 
         # saver
@@ -202,10 +223,10 @@ def run(hparams):
 
             # evaluate
             if (i+1) % hparams.eval_interval == 0:
-                f1_train, l_train = model.eval(
-                    sess, handle_train, header='train')
-                f1_dev, l_dev = model.eval(
-                    sess, handle_dev, header='dev')
+                f1_train, l_train = tagger_model.evaluate(
+                    sess, model, handle_train, header='train')
+                f1_dev, l_dev = tagger_model.evaluate(
+                    sess, model, handle_dev, header='dev')
                 logging.info(
                     'training: step=%d, loss_train=%g, f1_train=%g, '
                     'loss_dev=%g, f1_dev=%g', s, l_train, f1_train, l_dev,
