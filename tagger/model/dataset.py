@@ -35,8 +35,8 @@ def parse_example(proto, max_len=None):
 
 
 def dataset(filename, max_len=None, compression_type=None, limit=None,
-            num_parallel_calls=1, shuffle_size=None, batch_size=None,
-            repeat=False):
+            num_parallel_calls=1, shuffle_size=None, prefetch_size=None,
+            batch_size=None, repeat=False):
     """
     Builds a TFRecordDataset from a file.
     :param filename: the file containing the dataset
@@ -46,6 +46,7 @@ def dataset(filename, max_len=None, compression_type=None, limit=None,
     :param limit: limit on number of examples to take from dataset
     :param num_parallel_calls: parallelization level for parsing
     :param shuffle_size: shuffle buffer size
+    :param prefetch_size: prefetch buffer size
     :param batch_size: batching size
     :param repeat: flag for if the dataset should repeat
     :return: built TFRecordDataset
@@ -58,6 +59,8 @@ def dataset(filename, max_len=None, compression_type=None, limit=None,
     d = d.map(
         lambda p: parse_example(p, max_len=max_len),
         num_parallel_calls=num_parallel_calls)
+    if prefetch_size:
+        d = d.prefetch(prefetch_size)
     if shuffle_size:
         d = d.shuffle(shuffle_size)
     if repeat:

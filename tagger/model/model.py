@@ -1,11 +1,11 @@
 import logging
 from types import SimpleNamespace
 
+import numpy as np
 import tensorflow as tf
 
-import tagger.model.layers
+import tagger.model.layers as layers
 from tagger.model.dataset import FEATURE_NAMES
-
 
 logger = logging
 
@@ -15,6 +15,13 @@ class Model:
         self.handle = handle
         self.data_dict = data_dict
         self.hparams = hparams
+
+        # learning rate
+        # N.B., decay is applied, so this needs to be saved w/ the model
+        self.learning_rate = tf.get_variable(
+            'learning_rate', shape=[],
+            initializer=tf.constant_initializer(hparams.learning_rate),
+            trainable=False)
 
         # training flag
         self.training = tf.placeholder(tf.bool, name='training')
@@ -40,7 +47,7 @@ class Model:
         layer = tf.concat(embedded, axis=-1)
 
         # encode
-        layer = tagger.model.layers.rnn(
+        layer = layers.rnn(
             layer, self.input_len, hparams.hidden_dim,
             hparams.num_encoder_layers, hparams.dropout_rate, self.training,
             name='encode')
@@ -49,7 +56,7 @@ class Model:
         # layer = tf.layers.dense(layer, hparams.hidden_dim, name='encode_post')
 
         # memory
-        layer = tagger.model.layers.rnn(
+        layer = layers.rnn(
             layer, self.input_len, hparams.hidden_dim,
             hparams.num_memory_layers, hparams.dropout_rate, self.training,
             name='memory')
@@ -89,30 +96,63 @@ class Model:
 
         # optimizer
         self.global_step = tf.Variable(0, name='global_step', trainable=False)
-        opt = tf.train.AdamOptimizer(hparams.learning_rate)
+        opt = tf.train.AdamOptimizer(self.learning_rate)
         gs = opt.compute_gradients(self.mean_loss)
         gs, vs = zip(*gs)
         gs, _ = tf.clip_by_global_norm(gs, hparams.grad_clip_norm)
         self.train_op = opt.apply_gradients(
             zip(gs, vs), global_step=self.global_step)
 
-    def eval(self, sess, data_handle):
-        text, input_len, target, is_tag_est, class_est = sess.run(
-            [self.features.text, self.input_len, self.features.target,
-             self.is_tag_est, self.class_est],
-            feed_dict={self.handle: data_handle, self.training: False})
+    def eval(self, sess, data_handle, header=''):
+        # counters for precision/recall
+        cor_count = np.zeros([self.data_dict.target.size()])
+        est_count = np.zeros([self.data_dict.target.size()])
+        act_count = np.zeros([self.data_dict.target.size()])
 
-        for i in range(text.shape[0]):
-            logger.debug('example %d:', i)
-            for j in range(input_len[i]):
-                target_est = '-'
-                if is_tag_est[i, j]:
-                    target_est = self.data_dict.target.value(class_est[i, j])
-                logger.debug(
-                    '%20.20s %20.20s: %20.20s',
-                    self.data_dict.text.value(text[i, j]),
-                    self.data_dict.target.value(target[i, j]) or '-',
-                    target_est)
+        # example count
+        ex_count = 0
+        tot_loss = 0
+
+        for _ in range(self.hparams.eval_steps):
+            text, input_len, target, is_tag_est, class_est, loss = sess.run(
+                [self.features.text, self.input_len, self.features.target,
+                 self.is_tag_est, self.class_est, self.mean_loss],
+                feed_dict={self.handle: data_handle, self.training: False})
+
+            tot_loss += loss
+
+            for i in range(text.shape[0]):
+                # write example dump header to log
+                ex_count += 1
+                if ex_count <= self.hparams.dump_examples:
+                    logger.debug('%s example %d:', header, i)
+
+                for j in range(input_len[i]):
+                    act = target[i, j]
+                    est = class_est[i, j] if is_tag_est[i, j] else None
+
+                    # update stats, but only for labeled
+                    if act > 0:
+                        est_count[est] += 1
+                        act_count[act] += 1
+                        if act == est:
+                            cor_count[act] += 1
+
+                    # write example dump to log
+                    if ex_count <= self.hparams.dump_examples:
+                        logger.debug(
+                            '%20.20s %20.20s %20.20s',
+                            self.data_dict.text.value(text[i, j]),
+                            self.data_dict.target.value(act or 0) or '-',
+                            self.data_dict.target.value(est or 0) or '-')
+
+        # compute precision/recall, but only over classes we've seen
+        pre = cor_count / np.maximum(est_count, 1)
+        rec = cor_count / np.maximum(act_count, 1)
+        f1 = (2 * pre * rec) / (pre + rec + 1e-10)
+        f1 = np.sum(f1) / np.sum(act_count > 0)
+
+        return f1, tot_loss / self.hparams.eval_steps
 
     @staticmethod
     def _prepare_features(data_it):
@@ -146,6 +186,29 @@ class Model:
                 '%s_embedding' % feat_name, [emb_size, emb_dim]))
 
         return embeddings
+
+
+class LearningRateDecayer:
+    def __init__(self, model, max_patience):
+        self.model = model
+        self.patience = 0
+        self.max_patience = max_patience
+        self.best_loss = None
+
+    def _reset(self, loss):
+        self.best_loss = loss
+        self.patience = 0
+
+    def decay(self, loss):
+        if self.best_loss is None or loss < self.best_loss:
+            self._reset(loss)
+        else:
+            self.patience += 1
+        if self.patience >= self.max_patience:
+            new_lr = self.model.learning_rate.eval() / 2
+            logger.info('decaying learning rate: %g', new_lr)
+            tf.assign(self.model.learning_rate, new_lr).eval()
+            self._reset(loss)
 
 
 def dump_statistics():
