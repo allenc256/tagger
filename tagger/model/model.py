@@ -257,39 +257,50 @@ class LearningRateDecayer:
 
 
 def evaluate(sess, model, data_handle, header=''):
-    # counters for precision/recall
-    cor_count = np.zeros([model.data_dict.target.size()])
-    est_count = np.zeros([model.data_dict.target.size()])
-    act_count = np.zeros([model.data_dict.target.size()])
-
-    # example count
+    # counters
+    is_tag_cor_count = 0
+    is_tag_est_count = 0
+    is_tag_act_count = 0
+    is_tag_tot_loss = 0
+    class_cor_count = 0
+    class_tot_count = 0
+    class_tot_loss = 0
     ex_count = 0
-    tot_loss = 0
 
     for _ in range(model.hparams.eval_steps):
-        text, input_len, target, is_tag_est, class_est, loss = sess.run(
-            [model.features.text, model.input_len, model.features.target,
-             model.is_tag_est, model.class_est, model.mean_loss],
-            feed_dict={model.handle: data_handle, model.training: False})
+        text, input_len, target, is_tag_est, class_est, \
+            is_tag_loss, class_loss = sess.run(
+                [model.features.text, model.input_len, model.features.target,
+                 model.is_tag_est, model.class_est, model.mean_loss_is_tag,
+                 model.mean_loss_class],
+                feed_dict={model.handle: data_handle, model.training: False})
 
-        tot_loss += loss
+        is_tag_tot_loss += is_tag_loss
+        class_tot_loss += class_loss
 
         for i in range(text.shape[0]):
             # write example dump header to log
             ex_count += 1
             if ex_count <= model.hparams.dump_examples:
-                logger.debug('%s example %d:', header, i)
+                logger.debug('%s example %d:', header, ex_count)
 
             for j in range(input_len[i]):
                 act = target[i, j]
-                est = class_est[i, j] if is_tag_est[i, j] else None
+                est = class_est[i, j] if is_tag_est[i, j] else 0
 
-                # update stats, but only for labeled
+                # update counters for localizing tags
+                if act > 0 and est > 0:
+                    is_tag_cor_count += 1
                 if act > 0:
-                    est_count[est] += 1
-                    act_count[act] += 1
+                    is_tag_act_count += 1
+                if est > 0:
+                    is_tag_est_count += 1
+
+                # update counters for tag accuracy
+                if act > 0 and est > 0:
+                    class_tot_count += 1
                     if act == est:
-                        cor_count[act] += 1
+                        class_cor_count += 1
 
                 # write example dump to log
                 if ex_count <= model.hparams.dump_examples:
@@ -299,14 +310,15 @@ def evaluate(sess, model, data_handle, header=''):
                         model.data_dict.target.value(act or 0) or '-',
                         model.data_dict.target.value(est or 0) or '-')
 
-    # compute precision/recall, weighted by frequency of class
-    pre = cor_count / np.maximum(est_count, 1)
-    rec = cor_count / np.maximum(act_count, 1)
+    # compute stats
+    pre = is_tag_cor_count / np.maximum(is_tag_est_count, 1)
+    rec = is_tag_cor_count / np.maximum(is_tag_act_count, 1)
     f1 = (2 * pre * rec) / (pre + rec + 1e-10)
-    w = act_count / np.sum(act_count)
-    f1 = np.sum(f1 * w)
+    acc = class_cor_count / np.maximum(class_tot_count, 1)
+    mean_is_tag_loss = is_tag_tot_loss / model.hparams.eval_steps
+    mean_class_loss = class_tot_loss / model.hparams.eval_steps
 
-    return f1, tot_loss / model.hparams.eval_steps
+    return f1, acc, mean_is_tag_loss, mean_class_loss
 
 
 def dump_statistics():

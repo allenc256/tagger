@@ -43,7 +43,7 @@ def main():
         '--dropout-rate', metavar='F', type=float, default=0.2,
         help='dropout rate')
     parser.add_argument(
-        '--tag-pos-weight', metavar='F', type=float, default=3.0,
+        '--tag-pos-weight', metavar='F', type=float, default=2.0,
         help='weighted cross entropy positive weight (higher numbers should '
              'lead to increased recall at the expense of precision)')
     parser.add_argument(
@@ -70,10 +70,10 @@ def main():
         '--shuffle-size', metavar='N', type=int, default=1000,
         help='shuffle buffer size')
     parser.add_argument(
-        '--train-steps', metavar='N', type=int, default=100000,
+        '--train-steps', metavar='N', type=int, default=200000,
         help='number of training steps')
     parser.add_argument(
-        '--eval-steps', metavar='N', type=int, default=100,
+        '--eval-steps', metavar='N', type=int, default=500,
         help='number of evaluation steps')
     parser.add_argument(
         '--eval-interval', metavar='N', type=int, default=10000,
@@ -223,23 +223,32 @@ def run(hparams):
 
             # evaluate
             if (i+1) % hparams.eval_interval == 0:
-                f1_train, l_train = tagger_model.evaluate(
+                f1_train, acc_train, l1_train, l2_train = tagger_model.evaluate(
                     sess, model, handle_train, header='train')
-                f1_dev, l_dev = tagger_model.evaluate(
+                f1_dev, acc_dev, l1_dev, l2_dev = tagger_model.evaluate(
                     sess, model, handle_dev, header='dev')
+                l_train = l1_train + l2_train
+                l_dev = l1_dev + l2_dev
                 logging.info(
-                    'training: step=%d, loss_train=%g, f1_train=%g, '
-                    'loss_dev=%g, f1_dev=%g', s, l_train, f1_train, l_dev,
-                    f1_dev)
+                    'training: step=%d, loss_train=%g (%g+%g), f1_train=%g, '
+                    'acc_train=%g, loss_dev=%g (%g+%g), f1_dev=%g, acc_dev=%g',
+                    s, l_train, l1_train, l2_train, f1_train, acc_train,
+                    l_dev, l1_dev, l2_dev, f1_dev, acc_dev)
 
                 # apply learning rate decay
                 decayer.decay(l_dev)
 
                 # write eval summaries
                 write_summ(sfw, 'loss/train', l_train, s)
+                write_summ(sfw, 'loss1/train', l1_train, s)
+                write_summ(sfw, 'loss2/train', l2_train, s)
                 write_summ(sfw, 'loss/dev', l_dev, s)
+                write_summ(sfw, 'loss1/dev', l1_dev, s)
+                write_summ(sfw, 'loss2/dev', l2_dev, s)
                 write_summ(sfw, 'f1/train', f1_train, s)
                 write_summ(sfw, 'f1/dev', f1_dev, s)
+                write_summ(sfw, 'acc/train', acc_train, s)
+                write_summ(sfw, 'acc/dev', acc_dev, s)
                 sfw.flush()
 
                 # save model
